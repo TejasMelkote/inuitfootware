@@ -10,33 +10,77 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ApiPublicProductsRouteImport } from './routes/api/public/products'
+import { Route as ApiPublicVideosRouteImport } from './routes/api/public/videos'
+import { Route as ApiPublicOrdersOrderNumberRouteImport } from './routes/api/public/orders.$orderNumber'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiPublicProductsRoute = ApiPublicProductsRouteImport.update({
+  id: '/api/public/products',
+  path: '/api/public/products',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicVideosRoute = ApiPublicVideosRouteImport.update({
+  id: '/api/public/videos',
+  path: '/api/public/videos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiPublicOrdersOrderNumberRoute =
+  ApiPublicOrdersOrderNumberRouteImport.update({
+    id: '/api/public/orders/$orderNumber',
+    path: '/api/public/orders/$orderNumber',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/api/public/products': typeof ApiPublicProductsRoute
+  '/api/public/videos': typeof ApiPublicVideosRoute
+  '/api/public/orders/$orderNumber': typeof ApiPublicOrdersOrderNumberRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/api/public/products': typeof ApiPublicProductsRoute
+  '/api/public/videos': typeof ApiPublicVideosRoute
+  '/api/public/orders/$orderNumber': typeof ApiPublicOrdersOrderNumberRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/api/public/products': typeof ApiPublicProductsRoute
+  '/api/public/videos': typeof ApiPublicVideosRoute
+  '/api/public/orders/$orderNumber': typeof ApiPublicOrdersOrderNumberRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/api/public/products'
+    | '/api/public/videos'
+    | '/api/public/orders/$orderNumber'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/api/public/products'
+    | '/api/public/videos'
+    | '/api/public/orders/$orderNumber'
+  id:
+    | '__root__'
+    | '/'
+    | '/api/public/products'
+    | '/api/public/videos'
+    | '/api/public/orders/$orderNumber'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ApiPublicProductsRoute: typeof ApiPublicProductsRoute
+  ApiPublicVideosRoute: typeof ApiPublicVideosRoute
+  ApiPublicOrdersOrderNumberRoute: typeof ApiPublicOrdersOrderNumberRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +92,35 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/public/products': {
+      id: '/api/public/products'
+      path: '/api/public/products'
+      fullPath: '/api/public/products'
+      preLoaderRoute: typeof ApiPublicProductsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/videos': {
+      id: '/api/public/videos'
+      path: '/api/public/videos'
+      fullPath: '/api/public/videos'
+      preLoaderRoute: typeof ApiPublicVideosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/public/orders/$orderNumber': {
+      id: '/api/public/orders/$orderNumber'
+      path: '/api/public/orders/$orderNumber'
+      fullPath: '/api/public/orders/$orderNumber'
+      preLoaderRoute: typeof ApiPublicOrdersOrderNumberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ApiPublicProductsRoute: ApiPublicProductsRoute,
+  ApiPublicVideosRoute: ApiPublicVideosRoute,
+  ApiPublicOrdersOrderNumberRoute: ApiPublicOrdersOrderNumberRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
