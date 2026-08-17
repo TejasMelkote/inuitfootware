@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AdminRouteImport } from './routes/admin'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as ApiPublicProductsRouteImport } from './routes/api/public/products'
 import { Route as ApiPublicVideosRouteImport } from './routes/api/public/videos'
 import { Route as ApiPublicOrdersOrderNumberRouteImport } from './routes/api/public/orders.$orderNumber'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const AdminRoute = AdminRouteImport.update({
   id: '/admin',
   path: '/admin',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiPublicProductsRoute = ApiPublicProductsRouteImport.update({
@@ -45,6 +51,7 @@ const ApiPublicOrdersOrderNumberRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/products': typeof ApiPublicProductsRoute
   '/api/public/videos': typeof ApiPublicVideosRoute
   '/api/public/orders/$orderNumber': typeof ApiPublicOrdersOrderNumberRoute
@@ -52,6 +59,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/products': typeof ApiPublicProductsRoute
   '/api/public/videos': typeof ApiPublicVideosRoute
   '/api/public/orders/$orderNumber': typeof ApiPublicOrdersOrderNumberRoute
@@ -60,6 +68,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/admin': typeof AdminRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/api/public/products': typeof ApiPublicProductsRoute
   '/api/public/videos': typeof ApiPublicVideosRoute
   '/api/public/orders/$orderNumber': typeof ApiPublicOrdersOrderNumberRoute
@@ -69,6 +78,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/admin'
+    | '/sitemap.xml'
     | '/api/public/products'
     | '/api/public/videos'
     | '/api/public/orders/$orderNumber'
@@ -76,6 +86,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/admin'
+    | '/sitemap.xml'
     | '/api/public/products'
     | '/api/public/videos'
     | '/api/public/orders/$orderNumber'
@@ -83,6 +94,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/admin'
+    | '/sitemap.xml'
     | '/api/public/products'
     | '/api/public/videos'
     | '/api/public/orders/$orderNumber'
@@ -91,6 +103,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AdminRoute: typeof AdminRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   ApiPublicProductsRoute: typeof ApiPublicProductsRoute
   ApiPublicVideosRoute: typeof ApiPublicVideosRoute
   ApiPublicOrdersOrderNumberRoute: typeof ApiPublicOrdersOrderNumberRoute
@@ -110,6 +123,13 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin'
       preLoaderRoute: typeof AdminRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/public/products': {
@@ -139,6 +159,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AdminRoute: AdminRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   ApiPublicProductsRoute: ApiPublicProductsRoute,
   ApiPublicVideosRoute: ApiPublicVideosRoute,
   ApiPublicOrdersOrderNumberRoute: ApiPublicOrdersOrderNumberRoute,
