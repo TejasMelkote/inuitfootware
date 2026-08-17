@@ -1,4 +1,4 @@
-import { db, fetchProducts, fetchVideos } from "./db.server";
+import { db, fetchProducts, fetchVideos, hasSupabaseConfig } from "./db.server";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -39,12 +39,17 @@ export interface AdminOverview {
 }
 
 export async function getAdminOverview(): Promise<AdminOverview> {
+  const empty = { data: [] as any[], error: null };
   const [products, videos, convRes, orderRes, eventRes] = await Promise.all([
     fetchProducts(),
     fetchVideos(),
-    db.from("conversations").select("*").order("created_at", { ascending: false }).limit(50),
-    db.from("orders").select("*").order("created_at", { ascending: false }).limit(50),
-    db.from("analytics_events").select("event, payload").limit(1000),
+    hasSupabaseConfig()
+      ? db.from("conversations").select("*").order("created_at", { ascending: false }).limit(50)
+      : empty,
+    hasSupabaseConfig()
+      ? db.from("orders").select("*").order("created_at", { ascending: false }).limit(50)
+      : empty,
+    hasSupabaseConfig() ? db.from("analytics_events").select("event, payload").limit(1000) : empty,
   ]);
 
   const conversations = convRes.data ?? [];
@@ -126,6 +131,7 @@ export async function getAdminOverview(): Promise<AdminOverview> {
 export async function setOrderStatus(orderNumber: string, status: string) {
   const allowed = ["confirmed", "processing", "dispatched", "delivered", "cancelled"];
   if (!allowed.includes(status)) throw new Error("Unknown status");
+  if (!hasSupabaseConfig()) return { orderNumber, status };
   const { error } = await db
     .from("orders")
     .update({ status })
@@ -135,6 +141,7 @@ export async function setOrderStatus(orderNumber: string, status: string) {
 }
 
 export async function getOrderByNumber(orderNumber: string) {
+  if (!hasSupabaseConfig()) return null;
   const { data } = await db
     .from("orders")
     .select("*")
@@ -153,6 +160,7 @@ export async function getOrderByNumber(orderNumber: string) {
 }
 
 export async function getTranscript(conversationId: string) {
+  if (!hasSupabaseConfig()) return [];
   const { data } = await db
     .from("messages")
     .select("sender, message, message_type, created_at")

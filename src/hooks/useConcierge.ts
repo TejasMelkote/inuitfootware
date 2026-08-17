@@ -11,6 +11,7 @@ import type { ChatMessage, ChatResponse, ConversationSnapshot, DeliveryDraft } f
 
 const CONV_KEY = "inuit.conversation";
 const SESSION_KEY = "inuit.session";
+const SNAP_KEY = "inuit.snapshot";
 
 const newSessionId = () =>
   `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -35,8 +36,13 @@ export function useConcierge(): ConciergeApi {
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const idRef = useRef<string | null>(null);
+  const snapRef = useRef<ChatResponse | null>(null);
 
   const apply = useCallback((res: ChatResponse, base?: number) => {
+    snapRef.current = res;
+    idRef.current = res.conversation.id;
+    localStorage.setItem(CONV_KEY, res.conversation.id);
+    localStorage.setItem(SNAP_KEY, JSON.stringify(res));
     setConversation(res.conversation);
     setAll(res.messages);
     if (base !== undefined) setRevealed(Math.min(base, res.messages.length));
@@ -46,12 +52,32 @@ export function useConcierge(): ConciergeApi {
     let cancelled = false;
     const boot = async () => {
       try {
+        const cached = localStorage.getItem(SNAP_KEY);
+        if (cached) {
+          try {
+            const local = JSON.parse(cached) as ChatResponse;
+            if (local?.conversation?.id && Array.isArray(local.messages)) {
+              if (cancelled) return;
+              apply(local, local.messages.length);
+              setReady(true);
+              if (!local.conversation.ephemeral) {
+                void fetchConversation({ data: { id: local.conversation.id } })
+                  .then((res) => {
+                    if (!cancelled) apply(res, res.messages.length);
+                  })
+                  .catch(() => undefined);
+              }
+              return;
+            }
+          } catch {
+            localStorage.removeItem(SNAP_KEY);
+          }
+        }
         const existing = localStorage.getItem(CONV_KEY);
         if (existing) {
           try {
             const res = await fetchConversation({ data: { id: existing } });
             if (cancelled) return;
-            idRef.current = res.conversation.id;
             apply(res, res.messages.length);
             setReady(true);
             return;
@@ -66,8 +92,6 @@ export function useConcierge(): ConciergeApi {
         }
         const res = await startConversation({ data: { sessionId } });
         if (cancelled) return;
-        idRef.current = res.conversation.id;
-        localStorage.setItem(CONV_KEY, res.conversation.id);
         apply(res, 0);
         setReady(true);
       } catch {
@@ -109,8 +133,10 @@ export function useConcierge(): ConciergeApi {
       optimisticUser?: string,
     ) => {
       const id = idRef.current;
-      if (!id || busy) return;
-      setBusy(true);
+      if (!id) return;
+      const background = Boolean(payload.action?.startsWith("video:"));
+      if (busy && !background) return;
+      if (!background) setBusy(true);
       let base = all.length;
       if (optimisticUser) {
         base += 1;
@@ -128,13 +154,17 @@ export function useConcierge(): ConciergeApi {
         setRevealed(base);
       }
       try {
-        const res = await sendTurn({ data: { conversationId: id, ...payload } });
+        const res = await sendTurn({
+          data: { conversationId: id, snapshot: snapRef.current ?? undefined, ...payload },
+        });
         apply(res, base);
       } catch {
-        toast.error("Something went wrong on our side. Please try that again.");
-        setAll((prev) => prev.filter((m) => !m.id.startsWith("local-")));
+        if (!background) {
+          toast.error("Something went wrong on our side. Please try that again.");
+          setAll((prev) => prev.filter((m) => !m.id.startsWith("local-")));
+        }
       } finally {
-        setBusy(false);
+        if (!background) setBusy(false);
       }
     },
     [all.length, apply, busy],
@@ -146,9 +176,9 @@ export function useConcierge(): ConciergeApi {
       if (!id) return;
       setBusy(true);
       try {
-        const res = await restartConversation({ data: { conversationId: id, keep } });
-        idRef.current = res.conversation.id;
-        localStorage.setItem(CONV_KEY, res.conversation.id);
+        const res = await restartConversation({
+          data: { conversationId: id, keep, snapshot: snapRef.current ?? undefined },
+        });
         apply(res, 0);
       } catch {
         toast.error("Couldn't start a new conversation just now.");

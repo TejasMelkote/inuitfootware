@@ -36,7 +36,7 @@ function AdminPage() {
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-5">
           <div>
-            <p className="label-caps">Internal</p>
+            <p className="label-caps">Internal · Tejas Melkote</p>
             <h1 className="font-serif text-2xl">INUIT Studio</h1>
           </div>
           <Link

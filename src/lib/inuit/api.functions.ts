@@ -19,6 +19,29 @@ const prefsSchema = z.object({
   occasion: z.string().optional(),
 });
 
+const snapshotSchema = z
+  .object({
+    conversation: z
+      .object({
+        id: z.string().uuid(),
+        sessionId: z.string(),
+        state: z.string(),
+        preferences: z.record(z.any()).optional(),
+        selectedProduct: z.any().nullable().optional(),
+        selectedSize: z.string().nullable().optional(),
+        selectedColor: z.string().nullable().optional(),
+        deliveryDraft: z.record(z.any()).optional(),
+        viewedVideos: z.array(z.string()).optional(),
+        messageCount: z.number().optional(),
+        createdAt: z.string().optional(),
+        ephemeral: z.boolean().optional(),
+        localOrders: z.array(z.any()).optional(),
+      })
+      .passthrough(),
+    messages: z.array(z.any()).max(200),
+  })
+  .optional();
+
 const turnSchema = z.object({
   conversationId: z.string().uuid(),
   action: z.string().max(200).optional(),
@@ -35,6 +58,7 @@ const turnSchema = z.object({
       pinCode: z.string().max(12).optional(),
     })
     .optional(),
+  snapshot: snapshotSchema,
 });
 
 export const listProducts = createServerFn({ method: "GET" })
@@ -72,11 +96,13 @@ export const sendTurn = createServerFn({ method: "POST" })
 
 export const restartConversation = createServerFn({ method: "POST" })
   .inputValidator((data: unknown) =>
-    z.object({ conversationId: z.string().uuid(), keep: z.boolean() }).parse(data),
+    z
+      .object({ conversationId: z.string().uuid(), keep: z.boolean(), snapshot: snapshotSchema })
+      .parse(data),
   )
   .handler(async ({ data }) => {
     const { resetConversation } = await import("./conversation.server");
-    return resetConversation(data.conversationId, data.keep);
+    return resetConversation(data.conversationId, data.keep, data.snapshot);
   });
 
 export const getRecommendations = createServerFn({ method: "POST" })

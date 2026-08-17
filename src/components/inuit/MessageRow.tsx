@@ -8,7 +8,7 @@ import { QuickReplies } from "@/components/inuit/QuickReplies";
 import { SizePicker } from "@/components/inuit/SizePicker";
 import { VideoGrid } from "@/components/inuit/VideoGrid";
 import { cn } from "@/lib/utils";
-import type { ChatMessage, ConversationSnapshot, DeliveryDraft } from "@/types";
+import type { ChatMessage, ConversationSnapshot, DeliveryDraft, Video } from "@/types";
 
 interface Props {
   message: ChatMessage;
@@ -17,6 +17,7 @@ interface Props {
   busy?: boolean;
   send: (action: string, label?: string) => void;
   submitDelivery: (draft: DeliveryDraft) => void;
+  onWatchVideo?: (video: Video) => void;
 }
 
 export function MessageRow({
@@ -26,6 +27,7 @@ export function MessageRow({
   busy,
   send,
   submitDelivery,
+  onWatchVideo,
 }: Props) {
   const meta = message.metadata ?? {};
   const interactive = isLatest && !busy;
@@ -97,8 +99,7 @@ export function MessageRow({
         <VideoGrid
           videos={meta.videos}
           viewed={conversation?.viewedVideos ?? []}
-          disabled={disabled}
-          onOpen={(video) => send(`video:${video.id}`)}
+          onOpen={(video) => (onWatchVideo ? onWatchVideo(video) : send(`video:${video.id}`))}
         />
       )}
 

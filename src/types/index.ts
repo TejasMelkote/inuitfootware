@@ -166,6 +166,9 @@ export interface ConversationSnapshot {
   viewedVideos: string[];
   messageCount: number;
   createdAt?: string;
+  /** True when the server could not persist to Supabase (no service role key). */
+  ephemeral?: boolean;
+  localOrders?: OrderRecord[];
 }
 
 export interface ChatResponse {

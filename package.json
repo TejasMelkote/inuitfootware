@@ -1,11 +1,21 @@
 {
-  "name": "tanstack_start_ts",
+  "name": "inuitfootware",
   "private": true,
   "sideEffects": false,
   "type": "module",
+  "author": {
+    "name": "Tejas Melkote",
+    "url": "https://github.com/TejasMelkote"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/TejasMelkote/inuitfootware.git"
+  },
+  "homepage": "https://inuitfootware.vercel.app",
+  "description": "INUIT — a luxury footwear concierge storefront designed and built by Tejas Melkote.",
   "scripts": {
     "dev": "vite dev",
-    "build": "vite build",
+    "build": "vite build && node scripts/fix-nitro-ssr.mjs",
     "build:dev": "vite build --mode development",
     "preview": "vite preview",
     "lint": "eslint .",
@@ -68,7 +78,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.32.0",
-    "@lovable.dev/vite-tanstack-config": "^2.15.0",
     "@types/node": "^22.16.5",
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",

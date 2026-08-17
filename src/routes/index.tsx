@@ -10,13 +10,13 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "INUIT crafts leather loafers, sneakers, boots and dress shoes in small runs. Shop the collection through a quiet conversation with our concierge.",
+          "INUIT crafts leather loafers, sneakers, boots and dress shoes in small runs. Shop the collection through a quiet conversation — an original concierge by Tejas Melkote.",
       },
       { property: "og:title", content: "INUIT — Handcrafted Luxury Footwear" },
       {
         property: "og:description",
         content:
-          "Leather loafers, sneakers, boots and dress shoes, made in small runs. Ordered through a conversation, not a checkout form.",
+          "Leather loafers, sneakers, boots and dress shoes, made in small runs. An original concierge storefront by Tejas Melkote.",
       },
     ],
   }),
@@ -127,14 +127,24 @@ function Home() {
             <p>Mon–Sat, 10:00–18:00 IST</p>
           </div>
           <div className="space-y-2 text-xs text-taupe">
-            <p className="label-caps">Care</p>
-            <p>Complimentary insured delivery</p>
-            <p>Lifetime resoling on welted pairs</p>
-            <p>concierge@inuit.example</p>
+            <p className="label-caps">Made by</p>
+            <p>Tejas Melkote · Bengaluru</p>
+            <a
+              href="https://github.com/TejasMelkote/inuitfootware"
+              className="block transition-colors hover:text-foreground"
+            >
+              github.com/TejasMelkote
+            </a>
+            <a
+              href="https://tejas-melkote.vercel.app"
+              className="block transition-colors hover:text-foreground"
+            >
+              tejas-melkote.vercel.app
+            </a>
           </div>
         </div>
         <p className="border-t border-border px-5 py-5 text-center text-[0.625rem] tracking-[0.2em] text-taupe/70 uppercase">
-          © {new Date().getFullYear()} INUIT · A fictional house, built for demonstration
+          © {new Date().getFullYear()} INUIT · An original project by Tejas Melkote
         </p>
       </footer>
     </main>

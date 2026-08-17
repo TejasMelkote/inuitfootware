@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Intent, Preferences } from "@/types";
+import { groqChat } from "./groq.server";
 
 export interface IntentResult {
   intent: Intent;
@@ -34,41 +35,23 @@ Return JSON only, no prose. Shape:
 Intents: PRODUCT_SEARCH, CATEGORY_SELECTION, STYLE_SELECTION, COLOR_SELECTION, SIZE_SELECTION, CRAFTSMANSHIP, DELIVERY, ORDER, HELP, RESET, UNKNOWN.
 Use UNKNOWN when the message is not about footwear shopping, craft, delivery or orders.`;
 
-/** AI-assisted extraction with a deterministic keyword fallback. */
+/** AI-assisted extraction via Groq, with a deterministic keyword fallback. */
 export async function detectIntent(text: string): Promise<IntentResult> {
   const keyword = keywordIntent(text);
-  const apiKey = process.env["LOVABLE_API_KEY"] ?? process.env["OPENAI_API_KEY"];
-  if (!apiKey || !text.trim()) return keyword;
+  if (!text.trim()) return keyword;
 
   try {
-    const isOpenAiKey = !process.env["LOVABLE_API_KEY"] && !!process.env["OPENAI_API_KEY"];
-    const endpoint = isOpenAiKey
-      ? "https://api.openai.com/v1/chat/completions"
-      : "https://ai.gateway.lovable.dev/v1/chat/completions";
-    const model = isOpenAiKey ? "gpt-4o-mini" : "google/gemini-3.1-flash-lite";
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6000);
-    const response = await fetch(endpoint, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
-        temperature: 0,
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: text.slice(0, 500) },
-        ],
-      }),
+    const raw = await groqChat({
+      temperature: 0,
+      json: true,
+      timeoutMs: 6000,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: text.slice(0, 500) },
+      ],
     });
-    clearTimeout(timer);
-    if (!response.ok) return keyword;
+    if (!raw) return keyword;
 
-    const payload = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const raw = payload.choices?.[0]?.message?.content ?? "";
     const json = raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1);
     const parsed = intentSchema.safeParse(JSON.parse(json));
     if (!parsed.success) return keyword;

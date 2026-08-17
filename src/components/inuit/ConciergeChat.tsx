@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowUp, RotateCcw } from "lucide-react";
 
 import { MessageRow } from "@/components/inuit/MessageRow";
+import { VideoPlayer } from "@/components/inuit/VideoPlayer";
 import { TypingIndicator } from "@/components/inuit/TypingIndicator";
 import { useConcierge } from "@/hooks/useConcierge";
 import { CATEGORY_LABEL } from "@/types";
+import type { Video } from "@/types";
 
 export function ConciergeChat() {
   const { conversation, messages, typing, busy, ready, send, sendText, submitDelivery, restart } =
     useConcierge();
   const [draft, setDraft] = useState("");
+  const [watching, setWatching] = useState<Video | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -41,6 +44,8 @@ export function ConciergeChat() {
           <p className="mt-1 flex items-center gap-1.5 text-[0.6875rem] tracking-[0.14em] text-taupe uppercase">
             <span className="h-1 w-1 rounded-full bg-champagne" />
             {typing ? "Typing" : "Online"}
+            <span className="text-taupe/50">·</span>
+            <span className="normal-case tracking-normal">by Tejas Melkote</span>
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -83,10 +88,16 @@ export function ConciergeChat() {
             busy={busy || typing}
             send={send}
             submitDelivery={submitDelivery}
+            onWatchVideo={(video) => {
+              setWatching(video);
+              send(`video:${video.id}`);
+            }}
           />
         ))}
         {typing && <TypingIndicator />}
       </div>
+
+      <VideoPlayer video={watching} onClose={() => setWatching(null)} />
 
       <form
         className="flex items-center gap-2 border-t border-border px-4 py-3"

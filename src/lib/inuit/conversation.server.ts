@@ -1,4 +1,5 @@
 import {
+  canPersistConversations,
   db,
   fetchProduct,
   fetchProducts,
@@ -6,6 +7,7 @@ import {
   logEvent,
   mapProduct,
 } from "./db.server";
+import { groqChat } from "./groq.server";
 import { detectIntent } from "./intent.server";
 import { explainRecommendation, topRecommendations } from "./recommend.server";
 import { CATEGORY_LABEL, COLLECTIONS } from "@/types";
@@ -97,6 +99,51 @@ type ConvRow = any;
 interface Turn {
   conv: ConvRow;
   clock: number;
+  ephemeral: boolean;
+  messages: ChatMessage[];
+}
+
+function newConvRow(sessionId: string, preferences: Preferences = {}): ConvRow {
+  return {
+    id: crypto.randomUUID(),
+    session_id: sessionId,
+    state: "WELCOME",
+    preferences,
+    selected_product_id: null,
+    selected_size: null,
+    selected_color: null,
+    delivery_draft: {},
+    viewed_videos: [],
+    message_count: 0,
+    created_at: new Date().toISOString(),
+    local_orders: [],
+  };
+}
+
+function turnFromSnapshot(res: ChatResponse): Turn {
+  const c = res.conversation;
+  return {
+    conv: {
+      id: c.id,
+      session_id: c.sessionId,
+      state: c.state,
+      preferences: c.preferences ?? {},
+      selected_product_id: c.selectedProduct?.id ?? null,
+      selected_size: c.selectedSize ?? null,
+      selected_color: c.selectedColor ?? null,
+      delivery_draft: c.deliveryDraft ?? {},
+      viewed_videos: c.viewedVideos ?? [],
+      message_count: c.messageCount ?? res.messages.length,
+      created_at: c.createdAt ?? new Date().toISOString(),
+      local_orders: c.localOrders ?? [],
+    },
+    clock: Date.now(),
+    ephemeral: true,
+    messages: res.messages.map((m) => ({
+      ...m,
+      metadata: m.metadata ?? {},
+    })),
+  };
 }
 
 async function insertMessage(
@@ -106,15 +153,30 @@ async function insertMessage(
   type: MessageType = "text",
   metadata: MessageMetadata = {},
 ) {
-  await db.from("messages").insert({
+  const createdAt = new Date(turn.clock++).toISOString();
+  const row: ChatMessage = {
+    id: crypto.randomUUID(),
+    sender,
+    message,
+    type,
+    metadata,
+    createdAt,
+  };
+  turn.messages.push(row);
+  turn.conv.message_count = (turn.conv.message_count ?? 0) + 1;
+  if (turn.ephemeral) return;
+  const { error } = await db.from("messages").insert({
     conversation_id: turn.conv.id,
     sender,
     message,
     message_type: type,
     metadata: metadata as never,
-    created_at: new Date(turn.clock++).toISOString(),
+    created_at: createdAt,
   });
-  turn.conv.message_count = (turn.conv.message_count ?? 0) + 1;
+  if (error) {
+    console.warn("[inuit] message persist skipped:", error.message);
+    turn.ephemeral = true;
+  }
 }
 
 const bot = (turn: Turn, message: string, type: MessageType = "text", meta: MessageMetadata = {}) =>
@@ -125,13 +187,19 @@ const user = (turn: Turn, message: string, meta: MessageMetadata = {}) =>
 
 async function patchConv(turn: Turn, patch: Record<string, unknown>) {
   turn.conv = { ...turn.conv, ...patch };
-  const { data } = await db
+  if (turn.ephemeral) return;
+  const { data, error } = await db
     .from("conversations")
     .update({ ...patch, message_count: turn.conv.message_count } as never)
     .eq("id", turn.conv.id)
     .select("*")
     .maybeSingle();
-  if (data) turn.conv = data;
+  if (error) {
+    console.warn("[inuit] conversation persist skipped:", error.message);
+    turn.ephemeral = true;
+    return;
+  }
+  if (data) turn.conv = { ...data, local_orders: turn.conv.local_orders ?? [] };
 }
 
 async function snapshot(conversationId: string): Promise<ChatResponse> {
@@ -175,51 +243,132 @@ async function snapshot(conversationId: string): Promise<ChatResponse> {
   return { conversation, messages };
 }
 
+async function snapshotFromTurn(turn: Turn): Promise<ChatResponse> {
+  if (!turn.ephemeral) return snapshot(turn.conv.id);
+  const selectedProduct = turn.conv.selected_product_id
+    ? await fetchProduct(turn.conv.selected_product_id)
+    : null;
+  return {
+    conversation: {
+      id: turn.conv.id,
+      sessionId: turn.conv.session_id,
+      state: turn.conv.state as ConversationState,
+      preferences: (turn.conv.preferences ?? {}) as Preferences,
+      selectedProduct,
+      selectedSize: turn.conv.selected_size,
+      selectedColor: turn.conv.selected_color,
+      deliveryDraft: (turn.conv.delivery_draft ?? {}) as DeliveryDraft,
+      viewedVideos: turn.conv.viewed_videos ?? [],
+      messageCount: turn.conv.message_count ?? turn.messages.length,
+      createdAt: turn.conv.created_at,
+      ephemeral: true,
+      localOrders: turn.conv.local_orders ?? [],
+    },
+    messages: turn.messages,
+  };
+}
+
+async function loadTurn(conversationId: string, snap?: ChatResponse): Promise<Turn> {
+  if (canPersistConversations()) {
+    const { data: conv } = await db
+      .from("conversations")
+      .select("*")
+      .eq("id", conversationId)
+      .maybeSingle();
+    if (conv) {
+      return { conv, clock: Date.now(), ephemeral: false, messages: [] };
+    }
+  }
+  if (snap?.conversation?.id === conversationId) return turnFromSnapshot(snap);
+  throw new Error("Conversation not found");
+}
+
 /* --------------------------------------------------------- public API ----- */
 
 export async function createConversation(sessionId: string): Promise<ChatResponse> {
-  const { data, error } = await db
-    .from("conversations")
-    .insert({ session_id: sessionId, state: "WELCOME" })
-    .select("*")
-    .single();
-  if (error) throw new Error(error.message);
+  if (canPersistConversations()) {
+    const { data, error } = await db
+      .from("conversations")
+      .insert({ session_id: sessionId, state: "WELCOME" })
+      .select("*")
+      .single();
+    if (!error && data) {
+      const turn: Turn = { conv: data, clock: Date.now(), ephemeral: false, messages: [] };
+      await bot(turn, WELCOME_TEXT, "quick_replies", { quickReplies: WELCOME_REPLIES });
+      await patchConv(turn, {});
+      await logEvent("conversation_started", data.id, { sessionId });
+      return snapshot(data.id);
+    }
+    if (error) console.warn("[inuit] conversation insert skipped:", error.message);
+  }
 
-  const turn: Turn = { conv: data, clock: Date.now() };
+  const turn: Turn = {
+    conv: newConvRow(sessionId),
+    clock: Date.now(),
+    ephemeral: true,
+    messages: [],
+  };
   await bot(turn, WELCOME_TEXT, "quick_replies", { quickReplies: WELCOME_REPLIES });
-  await patchConv(turn, {});
-  await logEvent("conversation_started", data.id, { sessionId });
-  return snapshot(data.id);
+  return snapshotFromTurn(turn);
 }
 
-export async function loadConversation(id: string): Promise<ChatResponse> {
+export async function loadConversation(id: string, snap?: ChatResponse): Promise<ChatResponse> {
+  if (snap?.conversation?.id === id) return snap;
   return snapshot(id);
 }
 
 export async function resetConversation(
   conversationId: string,
   keepPreferences: boolean,
+  previousSnap?: ChatResponse,
 ): Promise<ChatResponse> {
-  const { data: previous } = await db
-    .from("conversations")
-    .select("*")
-    .eq("id", conversationId)
-    .maybeSingle();
+  let previous: ConvRow | null = null;
+  if (canPersistConversations()) {
+    const { data } = await db
+      .from("conversations")
+      .select("*")
+      .eq("id", conversationId)
+      .maybeSingle();
+    previous = data;
+  }
+  if (!previous && previousSnap?.conversation?.id === conversationId) {
+    previous = turnFromSnapshot(previousSnap).conv;
+  }
   const sessionId = previous?.session_id ?? crypto.randomUUID();
+  const keptPrefs = keepPreferences ? (previous?.preferences ?? {}) : {};
 
-  // History is preserved: the previous conversation and its messages stay in the database.
-  const { data, error } = await db
-    .from("conversations")
-    .insert({
-      session_id: sessionId,
-      state: "WELCOME",
-      preferences: keepPreferences ? (previous?.preferences ?? {}) : {},
-    })
-    .select("*")
-    .single();
-  if (error) throw new Error(error.message);
+  if (canPersistConversations()) {
+    const { data, error } = await db
+      .from("conversations")
+      .insert({
+        session_id: sessionId,
+        state: "WELCOME",
+        preferences: keptPrefs,
+      })
+      .select("*")
+      .single();
+    if (!error && data) {
+      const turn: Turn = { conv: data, clock: Date.now(), ephemeral: false, messages: [] };
+      if (keepPreferences && previous?.preferences && Object.keys(previous.preferences).length) {
+        await bot(turn, "Of course — I've kept your choices. Where would you like to pick up?", "quick_replies", {
+          quickReplies: WELCOME_REPLIES,
+        });
+      } else {
+        await bot(turn, WELCOME_TEXT, "quick_replies", { quickReplies: WELCOME_REPLIES });
+      }
+      await patchConv(turn, {});
+      await logEvent("conversation_started", data.id, { restarted: true, keepPreferences });
+      return snapshot(data.id);
+    }
+    if (error) console.warn("[inuit] conversation reset skipped:", error.message);
+  }
 
-  const turn: Turn = { conv: data, clock: Date.now() };
+  const turn: Turn = {
+    conv: newConvRow(sessionId, keptPrefs),
+    clock: Date.now(),
+    ephemeral: true,
+    messages: [],
+  };
   if (keepPreferences && previous?.preferences && Object.keys(previous.preferences).length) {
     await bot(turn, "Of course — I've kept your choices. Where would you like to pick up?", "quick_replies", {
       quickReplies: WELCOME_REPLIES,
@@ -227,9 +376,7 @@ export async function resetConversation(
   } else {
     await bot(turn, WELCOME_TEXT, "quick_replies", { quickReplies: WELCOME_REPLIES });
   }
-  await patchConv(turn, {});
-  await logEvent("conversation_started", data.id, { restarted: true, keepPreferences });
-  return snapshot(data.id);
+  return snapshotFromTurn(turn);
 }
 
 export interface TurnInput {
@@ -238,30 +385,24 @@ export interface TurnInput {
   label?: string | undefined;
   text?: string | undefined;
   delivery?: DeliveryDraft | undefined;
+  snapshot?: ChatResponse | undefined;
 }
 
 export async function handleTurn(input: TurnInput): Promise<ChatResponse> {
-  const { data: conv } = await db
-    .from("conversations")
-    .select("*")
-    .eq("id", input.conversationId)
-    .maybeSingle();
-  if (!conv) throw new Error("Conversation not found");
-
-  const turn: Turn = { conv, clock: Date.now() };
+  const turn = await loadTurn(input.conversationId, input.snapshot);
 
   if (input.text?.trim()) {
     await user(turn, input.text.trim());
     const result = await detectIntent(input.text);
     await runIntent(turn, result.intent, result.entities, input.text);
-    return snapshot(conv.id);
+    return snapshotFromTurn(turn);
   }
 
   if (input.action) {
     if (input.label) await user(turn, input.label);
     await runAction(turn, input.action, input.delivery);
   }
-  return snapshot(conv.id);
+  return snapshotFromTurn(turn);
 }
 
 /* ----------------------------------------------------------- questions ---- */
@@ -714,9 +855,24 @@ async function fallback(turn: Turn, text?: string) {
     await patchConv(turn, { state: "STYLE" });
     return;
   }
+  const generated = text
+    ? await groqChat({
+        temperature: 0.6,
+        timeoutMs: 7000,
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are Inuit Concierge, a warm luxury footwear stylist. The shopper said something you cannot fully act on. Reply in 1-3 short sentences. Sound human, never robotic. Do not invent products or prices. Gently offer to find a pair, explore the collection, show how shoes are made, or look up an order. No markdown.",
+          },
+          { role: "user", content: text.slice(0, 400) },
+        ],
+      })
+    : null;
   await bot(
     turn,
-    "I'm sorry — I may have missed that. 😅\n\nI can help you find a pair, explore our collections, show you how our shoes are made, or help with an order.",
+    generated ??
+      "I'm sorry — I may have missed that. 😅\n\nI can help you find a pair, explore our collections, show you how our shoes are made, or help with an order.",
     "quick_replies",
     { quickReplies: RECOVERY_REPLIES, intent: "UNKNOWN" },
   );
@@ -845,7 +1001,12 @@ async function confirmOrder(turn: Turn) {
     size: turn.conv.selected_size ?? product.sizes[0]!,
     color: turn.conv.selected_color ?? product.colors[0]!,
     draft,
+    persist: !turn.ephemeral,
   });
+
+  if (turn.ephemeral) {
+    turn.conv.local_orders = [...(turn.conv.local_orders ?? []), order];
+  }
 
   await bot(turn, "Your Inuit pair is on its way. ✨", "confirmation", { order });
   await bot(turn, "", "quick_replies", {
@@ -864,6 +1025,7 @@ export async function insertOrder(args: {
   size: string;
   color: string;
   draft: DeliveryDraft;
+  persist?: boolean;
 }) {
   const { product, size, color, draft } = args;
   if (!product.sizes.includes(size)) throw new Error("Unavailable size");
@@ -871,46 +1033,60 @@ export async function insertOrder(args: {
   if (product.inventory <= 0) throw new Error("Out of stock");
 
   const subtotal = product.price;
+  const persist = args.persist !== false && canPersistConversations();
   let inserted: any = null;
-  for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
-    const orderNumber = generateOrderNumber();
-    const { data, error } = await db
-      .from("orders")
-      .insert({
-        order_number: orderNumber,
-        conversation_id: args.conversationId,
-        customer: { name: draft.name, phone: draft.phone, email: draft.email ?? null } as never,
-        items: [
-          {
-            productId: product.id,
-            name: product.name,
-            image: product.images[0] ?? "",
-            size,
-            color,
-            price: subtotal,
-            quantity: 1,
-          },
-        ] as never,
-        subtotal,
-        delivery_address: {
-          address: draft.address,
-          city: draft.city,
-          state: draft.state,
-          pinCode: draft.pinCode,
-        } as never,
-        status: "confirmed",
-      })
-      .select("*")
-      .maybeSingle();
-    if (error && !error.message.includes("duplicate")) throw new Error(error.message);
-    inserted = data;
+  if (persist) {
+    for (let attempt = 0; attempt < 5 && !inserted; attempt++) {
+      const orderNumber = generateOrderNumber();
+      const { data, error } = await db
+        .from("orders")
+        .insert({
+          order_number: orderNumber,
+          conversation_id: args.conversationId,
+          customer: { name: draft.name, phone: draft.phone, email: draft.email ?? null } as never,
+          items: [
+            {
+              productId: product.id,
+              name: product.name,
+              image: product.images[0] ?? "",
+              size,
+              color,
+              price: subtotal,
+              quantity: 1,
+            },
+          ] as never,
+          subtotal,
+          delivery_address: {
+            address: draft.address,
+            city: draft.city,
+            state: draft.state,
+            pinCode: draft.pinCode,
+          } as never,
+          status: "confirmed",
+        })
+        .select("*")
+        .maybeSingle();
+      if (error && !error.message.includes("duplicate")) {
+        console.warn("[inuit] order persist skipped:", error.message);
+        break;
+      }
+      inserted = data;
+    }
   }
-  if (!inserted) throw new Error("Could not create the order");
 
-  await db
-    .from("products")
-    .update({ inventory: Math.max(0, product.inventory - 1) })
-    .eq("id", product.id);
+  if (!inserted) {
+    inserted = {
+      order_number: generateOrderNumber(),
+      status: "confirmed",
+      created_at: new Date().toISOString(),
+    };
+  } else {
+    await db
+      .from("products")
+      .update({ inventory: Math.max(0, product.inventory - 1) })
+      .eq("id", product.id);
+  }
+
   await logEvent("order_created", args.conversationId, {
     orderNumber: inserted.order_number,
     productId: product.id,
@@ -939,12 +1115,24 @@ function generateOrderNumber() {
 }
 
 async function showOrder(turn: Turn) {
-  const { data } = await db
-    .from("orders")
-    .select("*")
-    .eq("conversation_id", turn.conv.id)
-    .order("created_at", { ascending: false })
-    .limit(1);
+  const local = (turn.conv.local_orders as ChatResponse["conversation"]["localOrders"])?.[
+    (turn.conv.local_orders?.length ?? 1) - 1
+  ];
+  if (local?.orderNumber) {
+    await bot(turn, `Here's your order, ${local.name?.split(" ")[0] ?? "friend"}.`, "confirmation", {
+      order: local,
+    });
+    return;
+  }
+
+  const { data } = canPersistConversations()
+    ? await db
+        .from("orders")
+        .select("*")
+        .eq("conversation_id", turn.conv.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+    : { data: [] as any[] };
   const row = data?.[0];
   if (!row) {
     if (turn.conv.selected_product_id) {
